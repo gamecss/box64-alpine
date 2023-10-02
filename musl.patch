@@ -1,0 +1,231 @@
+diff --git a/CMakeLists.txt b/CMakeLists.txt
+index fb0ddf8c..35e4e381 100644
+--- a/CMakeLists.txt
++++ b/CMakeLists.txt
+@@ -23,6 +23,7 @@ option(PPC64LE "Set to ON if targeting an PowerPC 64 LE based device" ${PPC64LE}
+ option(LX2160A "Set to ON if targeting an LX2160A based device" ${LX2160A})
+ option(ARM64 "Set to ON if targeting a generic ARM64 based device" ${ARM64})
+ option(ANDROID "Set to ON if targeting an Android device" ${ANDROID})
++option(MUSL "Set to ON if targeting a musl-libc based device" ${MUSL})
+ option(USE_CCACHE "Set to ON to use ccache if present in the system" ${USE_CCACHE})
+ option(HAVE_TRACE "Set to ON to have Trace ability (needs ZydisInfo library)" ${HAVE_TRACE})
+ option(SAVE_MEM "Set to ON to build dynarec with some slower memory saving optimisations" ${SAVE_MEM})
+@@ -591,7 +591,7 @@ add_custom_command(
+     OUTPUT "${BOX64_ROOT}/src/wrapped/generated/functions_list.txt"
+     COMMAND "${PYTHON_EXECUTABLE}" "${BOX64_ROOT}/rebuild_wrappers.py"
+     "${BOX64_ROOT}"
+-    "PANDORA" "HAVE_LD80BITS" "NOALIGN" "HAVE_TRACE" "ANDROID" "--"
++    "PANDORA" "HAVE_LD80BITS" "NOALIGN" "HAVE_TRACE" "ANDROID" "MUSL" "--"
+     ${WRAPPEDS_HEAD}
+     MAIN_DEPENDENCY "${BOX64_ROOT}/rebuild_wrappers.py"
+     DEPENDS ${WRAPPEDS} ${WRAPPEDS_HEAD}
+@@ -765,10 +766,15 @@ add_dependencies(${BOX64} WRAPPERS)
+ #add_dependencies(${BOX64} PRINTER)
+ #target_link_libraries(${BOX64} c m dl rt pthread resolv)
+ if(STATICBUILD)
+-    set_target_properties(${BOX64} PROPERTIES LINK_FLAGS "-static -Wl,--no-as-needed -Wl,--whole-archive -Wl,--allow-multiple-definition -lm -ldl -lrt -lpthread -lresolv -lc -Wl,-defsym,_DYNAMIC=0 -pthread")
++    if(MUSL)
++        set_target_properties(${BOX64} PROPERTIES LINK_FLAGS "-static -Wl,--no-as-needed -Wl,--whole-archive -Wl,--allow-multiple-definition -lm -ldl -lrt -lpthread -lresolv -lobstack -lfts -lc -Wl,-defsym,_DYNAMIC=0 -pthread")
++    else()
++        set_target_properties(${BOX64} PROPERTIES LINK_FLAGS "-static -Wl,--no-as-needed -Wl,--whole-archive -Wl,--allow-multiple-definition -lm -ldl -lrt -lpthread -lresolv -lc -Wl,-defsym,_DYNAMIC=0 -pthread")
++    endif()
+ else()
+     if(ANDROID)
+         target_link_libraries(${BOX64} c m dl)
++    elseif(MUSL)
++        set_target_properties(${BOX64} PROPERTIES LINK_FLAGS "-Wl,--no-as-needed -lc -lm -ldl -lrt -lpthread -lresolv -lobstack -lfts -Wl,--as-needed -pthread")
+     else()
+         set_target_properties(${BOX64} PROPERTIES LINK_FLAGS "-Wl,--no-as-needed -lc -lm -ldl -lrt -lpthread -lresolv -Wl,--as-needed -pthread")
+     endif()
+diff --git a/src/emu/x64run.c b/src/emu/x64run.c
+index 7be78a21..703965be 100644
+--- a/src/emu/x64run.c
++++ b/src/emu/x64run.c
+@@ -26,6 +26,10 @@
+ 
+ #include "modrm.h"
+ 
++#ifdef MUSL
++typedef unsigned short __uint16_t;
++#endif
++
+ int my_setcontext(x64emu_t* emu, void* ucp);
+ 
+ #ifdef TEST_INTERPRETER
+diff --git a/src/include/debug.h b/src/include/debug.h
+index fa387d42..d509ef32 100644
+--- a/src/include/debug.h
++++ b/src/include/debug.h
+@@ -113,7 +113,7 @@ void printf_ftrace(const char* fmt, ...);
+ #endif
+ 
+ void init_malloc_hook(void);
+-#ifdef ANDROID
++#if defined(ANDROID) || defined(MUSL)
+ #define box_malloc      malloc
+ #define box_realloc     realloc
+ #define box_calloc      calloc
+diff --git a/src/libtools/signals.c b/src/libtools/signals.c
+index 1a241283..1873a09c 100644
+--- a/src/libtools/signals.c
++++ b/src/libtools/signals.c
+@@ -13,7 +13,7 @@
+ #include <setjmp.h>
+ #include <sys/mman.h>
+ #include <pthread.h>
+-#ifndef ANDROID
++#if !defined(ANDROID) || !defined(MUSL)
+ #include <execinfo.h>
+ #endif
+ 
+@@ -37,6 +37,9 @@
+ #include "dynarec_native.h"
+ #endif
+ 
++#ifdef MUSL
++#define PTHREAD_ERRORCHECK_MUTEX_INITIALIZER_NP { { ((PTHREAD_MUTEX_ERRORCHECK & 3) << 14) } }
++#endif
+ 
+ typedef uint64_t x64_gregset_t[23];
+ enum
+@@ -1217,7 +1220,7 @@ exit(-1);
+             }
+         }
+         print_cycle_log(log_minimum);
+-#ifndef ANDROID
++#if !defined(ANDROID) || !defined(MUSL)
+         if((box64_showbt || sig==SIGABRT) && log_minimum<=box64_log) {
+             // show native bt
+             #define BT_BUF_SIZE 100
+diff --git a/src/libtools/threads.c b/src/libtools/threads.c
+index c9d788e5..c3af0d41 100644
+--- a/src/libtools/threads.c
++++ b/src/libtools/threads.c
+@@ -39,8 +39,12 @@ typedef int (*iFli_t)(long unsigned int, int);
+ static vFppp_t real_pthread_cleanup_push_defer = NULL;
+ static vFpi_t real_pthread_cleanup_pop_restore = NULL;
+ static iFppip_t real_pthread_cond_clockwait = NULL;
++
++#ifndef MUSL
+ void _pthread_cleanup_push(void* buffer, void* routine, void* arg);	// declare hidden functions
+ void _pthread_cleanup_pop(void* buffer, int exec);
++#endif
++
+ // with glibc 2.34+, pthread_kill changed behaviour and might break some program, so using old version if possible
+ // it will be pthread_kill@GLIBC_2.17 on aarch64, but it's GLIBC_2.2.5 on x86_64
+ static iFli_t real_phtread_kill_old = NULL;
+@@ -61,7 +65,7 @@ typedef struct jump_buff_x64_s {
+ typedef struct __jmp_buf_tag_s {
+     jump_buff_x64_t  __jmpbuf;
+     int              __mask_was_saved;
+-	#ifdef ANDROID
++	#if defined(ANDROID) || defined(MUSL)
+ 	sigset_t       	 __saved_mask;
+ 	#else
+     __sigset_t       __saved_mask;
+@@ -79,7 +83,7 @@ typedef struct x64_unwind_buff_s {
+ typedef void(*vFv_t)();
+ 
+ KHASH_MAP_INIT_INT64(threadstack, threadstack_t*)
+-#ifndef ANDROID
++#if !defined(ANDROID) || !defined(MUSL)
+ KHASH_MAP_INIT_INT64(cancelthread, __pthread_unwind_buf_t*)
+ #endif
+ 
+@@ -149,7 +153,7 @@ static void FreeCancelThread(box64context_t* context)
+ 		return;
+ }
+ 
+-#ifndef ANDROID
++#if !defined(ANDROID) || !defined(MUSL)
+ static __pthread_unwind_buf_t* AddCancelThread(x64_unwind_buff_t* buff)
+ {
+ 	__pthread_unwind_buf_t* r = (__pthread_unwind_buf_t*)box_calloc(1, sizeof(__pthread_unwind_buf_t));
+@@ -539,7 +543,7 @@ void* my_prepare_thread(x64emu_t *emu, void* f, void* arg, int ssize, void** pet
+ 
+ void my_longjmp(x64emu_t* emu, /*struct __jmp_buf_tag __env[1]*/void *p, int32_t __val);
+ 
+-#ifndef ANDROID
++#if !defined(ANDROID) || !defined(MUSL)
+ #define CANCEL_MAX 8
+ static __thread x64emu_t* cancel_emu[CANCEL_MAX] = {0};
+ static __thread x64_unwind_buff_t* cancel_buff[CANCEL_MAX] = {0};
+diff --git a/src/wrapped/wrappedlibc.c b/src/wrapped/wrappedlibc.c
+index 61819a7f..1fea4ea1 100644
+--- a/src/wrapped/wrappedlibc.c
++++ b/src/wrapped/wrappedlibc.c
+@@ -1277,9 +1277,11 @@ EXPORT int my_statfs64(const char* path, void* buf)
+ }
+ #endif
+ 
+-#ifdef ANDROID
++#if defined(ANDROID) || defined(MUSL)
+ typedef int (*__compar_d_fn_t)(const void*, const void*, void*);
++#endif
+ 
++#ifdef ANDROID
+ static size_t qsort_r_partition(void* base, size_t size, __compar_d_fn_t compar, void* arg, size_t lo, size_t hi)
+ {
+     void* tmp = alloca(size);
+@@ -2503,7 +2505,7 @@ void InitCpuModel()
+ }
+ #endif
+ 
+-#ifdef ANDROID
++#if defined(ANDROID) || defined(MUSL)
+ void ctSetup()
+ {
+ }
+@@ -2548,7 +2550,7 @@ typedef struct jump_buff_x64_s {
+ typedef struct __jmp_buf_tag_s {
+     jump_buff_x64_t __jmpbuf;
+     int              __mask_was_saved;
+-    #ifdef ANDROID
++    #if defined(ANDROID) || defined(MUSL)
+     sigset_t         __saved_mask;
+     #else
+     __sigset_t       __saved_mask;
+@@ -2793,6 +2795,21 @@ EXPORT int my_mprotect(x64emu_t* emu, void *addr, unsigned long len, int prot)
+     return ret;
+ }
+ 
++#ifdef MUSL
++struct mallinfo
++{
++    int arena;
++    int ordblks;
++    int smblks;
++    int hblks;
++    int hblkhd;
++    int usmblks;
++    int fsmblks;
++    int uordblks;
++    int fordblks;
++    int keepcost;
++};
++#endif
+ typedef struct mallinfo (*mallinfo_fnc)(void);
+ EXPORT void* my_mallinfo(x64emu_t* emu, void* p)
+ {
+@@ -3239,7 +3256,7 @@ EXPORT int my_stime(x64emu_t* emu, const time_t *t)
+ }
+ 
+ int GetTID();
+-#ifdef ANDROID
++#if defined(ANDROID) || defined(MUSL)
+ void updateGlibcTidCache() {}
+ #else
+ struct glibc_pthread {
+diff --git a/src/wrapped/wrappedlibdl.c b/src/wrapped/wrappedlibdl.c
+index 217ae012..3569a932 100644
+--- a/src/wrapped/wrappedlibdl.c
++++ b/src/wrapped/wrappedlibdl.c
+@@ -397,7 +397,7 @@ int my_dlclose(x64emu_t* emu, void *handle)
+     DecRefCount(&dl->dllibs[nlib].lib, emu);
+     return 0;
+ }
+-#ifdef ANDROID
++#if defined(ANDROID) || defined(MUSL)
+ #ifndef RTLD_DL_SYMENT
+ #define RTLD_DL_SYMENT 1
+ #endif

@@ -1,5 +1,5 @@
-# Contributor: ptitSeb
-# Maintainer: gamecss
+# Contributor:
+# Maintainer:
 pkgname=box64
 pkgver=0.2.4
 pkgrel=0
@@ -7,13 +7,13 @@ pkgdesc="Linux Userspace x86_64 Emulator with a twist, targeted at ARM64 Linux d
 url="https://github.com/ptitSeb/box64"
 arch="aarch64 riscv64 ppc64le x86_64"
 license="MIT License"
-depends=""
-makedepends="cmake gcc samurai"
+depends="musl-fts musl-obstack"
+makedepends="cmake gcc samurai linux-headers musl-fts-dev musl-obstack-dev"
 checkdepends=""
 install=""
 subpackages=""
 source="$pkgname-$pkgver.tar.gz::https://github.com/ptitSeb/$pkgname/archive/refs/tags/v$pkgver.tar.gz
-        emu_x64run_musl.patch
+        musl.patch
         "
 builddir="$srcdir/$pkgname-$pkgver"
 
@@ -52,5 +52,5 @@ package() {
 
 sha512sums="
 8811497934dbc9ea64bae1f26ebea35be2f2d32fbbe14376f689398c80dab77691e9f9ab931382be2501c97acf6d468089803c39845d91bc3d976deef2ea0dd4  box64-0.2.4.tar.gz
-4849a8a3feac52d80e963e9d19029d9c845505f069ad68c24a4b2516b1205b7fcbbaf7de5d99f7401e7ca8599ec0bf9a1e51b666522274a15f552645ffcdda56  emu_x64run_musl.patch
+c3dd5bc922141b34845730e8aa42f7a16e629a2011d3e585bb44c013df0c0baff46faa8ff5f8232df0e3e119455b27146fa443d0638e817fe8967d56c52eff67  musl.patch
 "
