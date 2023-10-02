@@ -1,0 +1,37 @@
+diff --git a/src/elfs/elfloader.c b/src/elfs/elfloader.c
+index e26d718e..3bcf0db1 100644
+--- a/src/elfs/elfloader.c
++++ b/src/elfs/elfloader.c
+@@ -1836,8 +1836,13 @@ int dl_iterate_phdr_findsymbol(struct dl_phdr_info* info, size_t size, void* dat
+                     if(v->vd_version>0 && !v->vd_flags)
+                         for(int i=0; i<v->vd_cnt; ++i) {
+                             const char* vername = (strtab+vda->vda_name);
++#ifndef MUSL		    
+                             if(vername && vername[0] && (s->addr = dlvsym(s->lib, s->name, vername))) {
+                                 printf_log(/*LOG_DEBUG*/LOG_INFO, "Found symbol with version %s, value = %p\n", vername, s->addr);
++#else
++                            if(vername && vername[0] && (s->addr = dlsym(s->lib, s->name))) {
++                                printf_log(/*LOG_DEBUG*/LOG_INFO, "Found symbol with default version, value = %p\n", vername, s->addr);
++#endif
+                                 return 1;   // stop searching
+                             }
+diff --git a/src/libtools/threads.c b/src/libtools/threads.c
+index c9d788e5..d1783f2b 100644
+--- a/src/libtools/threads.c
++++ b/src/libtools/threads.c
+@@ -1093,6 +1097,7 @@ void init_pthread_helper()
+ 	real_pthread_cleanup_pop_restore = (vFpi_t)dlsym(NULL, "_pthread_cleanup_pop_restore");
+ 	real_pthread_cond_clockwait = (iFppip_t)dlsym(NULL, "pthread_cond_clockwait");
+ 
++#ifndef MUSL
+ 	// search for older symbol for pthread_kill
+ 	{
+ 		char buff[50];
+@@ -1101,6 +1106,7 @@ void init_pthread_helper()
+ 			real_phtread_kill_old = (iFli_t)dlvsym(NULL, "pthread_kill", buff);
+ 		}
+ 	}
++#endif
+ 	if(!real_phtread_kill_old) {
+ 		printf_log(LOG_INFO, "Warning, older then 2.34 pthread_kill not found, using current one\n");
+ 		real_phtread_kill_old = (iFli_t)pthread_kill;
