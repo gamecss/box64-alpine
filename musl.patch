@@ -1,5 +1,5 @@
 diff --git a/CMakeLists.txt b/CMakeLists.txt
-index fb0ddf8c..35e4e381 100644
+index fb0ddf8c..b554f920 100644
 --- a/CMakeLists.txt
 +++ b/CMakeLists.txt
 @@ -23,6 +23,7 @@ option(PPC64LE "Set to ON if targeting an PowerPC 64 LE based device" ${PPC64LE}
@@ -10,7 +10,17 @@ index fb0ddf8c..35e4e381 100644
  option(USE_CCACHE "Set to ON to use ccache if present in the system" ${USE_CCACHE})
  option(HAVE_TRACE "Set to ON to have Trace ability (needs ZydisInfo library)" ${HAVE_TRACE})
  option(SAVE_MEM "Set to ON to build dynarec with some slower memory saving optimisations" ${SAVE_MEM})
-@@ -591,7 +591,7 @@ add_custom_command(
+@@ -195,6 +196,9 @@ endif()
+ if(ANDROID)
+     add_definitions(-DANDROID)
+ endif()
++if(MUSL)
++    add_definitions(-DMUSL)
++endif()
+ if(BAD_SIGNAL)
+     add_definitions(-DBAD_SIGNAL)
+ endif()
+@@ -590,7 +594,7 @@ add_custom_command(
      OUTPUT "${BOX64_ROOT}/src/wrapped/generated/functions_list.txt"
      COMMAND "${PYTHON_EXECUTABLE}" "${BOX64_ROOT}/rebuild_wrappers.py"
      "${BOX64_ROOT}"
@@ -19,7 +29,7 @@ index fb0ddf8c..35e4e381 100644
      ${WRAPPEDS_HEAD}
      MAIN_DEPENDENCY "${BOX64_ROOT}/rebuild_wrappers.py"
      DEPENDS ${WRAPPEDS} ${WRAPPEDS_HEAD}
-@@ -765,10 +766,15 @@ add_dependencies(${BOX64} WRAPPERS)
+@@ -765,10 +769,16 @@ add_dependencies(${BOX64} WRAPPERS)
  #add_dependencies(${BOX64} PRINTER)
  #target_link_libraries(${BOX64} c m dl rt pthread resolv)
  if(STATICBUILD)
@@ -74,7 +84,7 @@ index 1a241283..1873a09c 100644
  #include <sys/mman.h>
  #include <pthread.h>
 -#ifndef ANDROID
-+#if !defined(ANDROID) || !defined(MUSL)
++#if !defined(MUSL) && !defined(MUSL)
  #include <execinfo.h>
  #endif
  
@@ -93,7 +103,7 @@ index 1a241283..1873a09c 100644
          }
          print_cycle_log(log_minimum);
 -#ifndef ANDROID
-+#if !defined(ANDROID) || !defined(MUSL)
++#if !defined(MUSL) && !defined(MUSL)
          if((box64_showbt || sig==SIGABRT) && log_minimum<=box64_log) {
              // show native bt
              #define BT_BUF_SIZE 100
@@ -128,7 +138,7 @@ index c9d788e5..c3af0d41 100644
  
  KHASH_MAP_INIT_INT64(threadstack, threadstack_t*)
 -#ifndef ANDROID
-+#if !defined(ANDROID) || !defined(MUSL)
++#if !defined(MUSL) && !defined(MUSL)
  KHASH_MAP_INIT_INT64(cancelthread, __pthread_unwind_buf_t*)
  #endif
  
@@ -137,7 +147,7 @@ index c9d788e5..c3af0d41 100644
  }
  
 -#ifndef ANDROID
-+#if !defined(ANDROID) || !defined(MUSL)
++#if !defined(MUSL) && !defined(MUSL)
  static __pthread_unwind_buf_t* AddCancelThread(x64_unwind_buff_t* buff)
  {
  	__pthread_unwind_buf_t* r = (__pthread_unwind_buf_t*)box_calloc(1, sizeof(__pthread_unwind_buf_t));
@@ -146,7 +156,7 @@ index c9d788e5..c3af0d41 100644
  void my_longjmp(x64emu_t* emu, /*struct __jmp_buf_tag __env[1]*/void *p, int32_t __val);
  
 -#ifndef ANDROID
-+#if !defined(ANDROID) || !defined(MUSL)
++#if !defined(MUSL) && !defined(MUSL)
  #define CANCEL_MAX 8
  static __thread x64emu_t* cancel_emu[CANCEL_MAX] = {0};
  static __thread x64_unwind_buff_t* cancel_buff[CANCEL_MAX] = {0};

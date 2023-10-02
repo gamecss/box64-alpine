@@ -38,6 +38,7 @@ build() {
 		-DCMAKE_INSTALL_PREFIX=/usr \
 		-DBUILD_SHARED_LIBS=ON \
     -DNOGIT=1 \
+    -DMUSL=1 \
 		$ARCHOPTS
 	cmake --build build
 }
